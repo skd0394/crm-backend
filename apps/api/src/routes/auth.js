@@ -1,24 +1,25 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { z } = require('zod');
+const { z, requiredText, email } = require('../validation');
 const pool = require('../db/pool');
 const config = require('../config');
 const { HttpError, validate } = require('../middleware/errors');
 
 const router = express.Router();
 
-const email = z.string().trim().toLowerCase().pipe(z.email());
-
 const registerSchema = z.object({
-  name: z.string().trim().min(1).max(100),
+  name: requiredText('Name', 100),
   email,
-  password: z.string().min(8).max(72), // bcrypt ignores bytes past 72
+  password: z
+    .string({ error: 'Password is required' })
+    .min(8, 'Password must be at least 8 characters')
+    .max(72, 'Password must be at most 72 characters'), // bcrypt ignores bytes past 72
 });
 
 const loginSchema = z.object({
   email,
-  password: z.string().min(1),
+  password: z.string({ error: 'Password is required' }).min(1, 'Password is required'),
 });
 
 function issueToken(employee) {

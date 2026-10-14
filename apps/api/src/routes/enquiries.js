@@ -1,5 +1,5 @@
 const express = require('express');
-const { z } = require('zod');
+const { z, requiredText, optionalText, email } = require('../validation');
 const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
 const { HttpError, validate } = require('../middleware/errors');
@@ -7,11 +7,11 @@ const { HttpError, validate } = require('../middleware/errors');
 const router = express.Router();
 
 const enquirySchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  email: z.string().trim().toLowerCase().pipe(z.email()),
-  phone: z.string().trim().max(20).optional(),
-  courseInterest: z.string().trim().min(1).max(200),
-  message: z.string().trim().max(2000).optional(),
+  name: requiredText('Name', 100),
+  email,
+  phone: optionalText('Phone', 20),
+  courseInterest: requiredText('Course of interest', 200),
+  message: optionalText('Message', 2000),
 });
 
 const COLUMNS = `id, name, email, phone, course_interest AS "courseInterest", message,

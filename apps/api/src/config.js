@@ -11,4 +11,6 @@ module.exports = {
   databaseUrl: required('DATABASE_URL'),
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
+  // Comma-separated list of allowed browser origins; unset allows any origin (dev).
+  corsOrigins: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : null,
 };

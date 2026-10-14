@@ -1,73 +1,86 @@
-# CRM Backend
+# Counselor CRM
 
-REST API for a counselor CRM. Prospective students submit a public enquiry form, every counselor sees unclaimed enquiries, and a counselor can **claim** an enquiry so that it becomes private to them.
+A CRM for education counselors. Prospective students fill in a **public enquiry form**, and every counselor sees the unclaimed enquiries. A counselor can **claim** an enquiry, which makes it private to them.
 
-**Stack:** Node.js 20+, Express 5, PostgreSQL, JWT (`jsonwebtoken`), `bcryptjs`, `zod` validation.
+This is an npm-workspaces monorepo:
 
-## Setup
+| App | Path | Stack |
+| --- | ---- | ----- |
+| REST API | [`apps/api`](apps/api) | Node.js 20+, Express 5, PostgreSQL, JWT, bcrypt, zod |
+| Web client | [`apps/web`](apps/web) | React 19, React Router 7, Vite |
+
+## Local development
+
+Prerequisites: Node 20+ and a local PostgreSQL.
 
 ```bash
-npm install
-cp .env.example .env          # set DATABASE_URL and a strong JWT_SECRET
+npm install                                   # installs both apps
 createdb crm
-npm run db:migrate            # also runs automatically on `npm start`
-npm start                     # http://localhost:4000
+cp apps/api/.env.example apps/api/.env        # set DATABASE_URL and a strong JWT_SECRET
+npm run dev                                   # API on :4000, web on :5173
 ```
 
-### Tests
+The web dev server proxies `/api` to `localhost:4000`, so no CORS setup is needed locally. The API creates its tables on startup.
+
+| Command | What it does |
+| ------- | ------------ |
+| `npm run dev` | Run the API and web app together |
+| `npm run dev:api` / `npm run dev:web` | Run one of them |
+| `npm test` | API integration tests (needs a `crm_test` DB, see below) |
+| `npm run build` | Production build of the web app |
+| `npm run lint` | Lint the web app |
+
+Test setup:
 
 ```bash
 createdb crm_test
-printf 'DATABASE_URL=postgres://localhost:5432/crm_test\nJWT_SECRET=test-secret\n' > .env.test
+printf 'DATABASE_URL=postgres://localhost:5432/crm_test\nJWT_SECRET=test-secret\n' > apps/api/.env.test
 npm test
 ```
 
+## Web client
+
+| Route | Auth | Purpose |
+| ----- | ---- | ------- |
+| `/enquire` | Public | Enquiry form for students (name, email, phone, course, message) |
+| `/login` | – | Counselor sign-in / registration |
+| `/` | JWT | Dashboard: **Unclaimed leads** (with *Claim*) and **My leads**. Also has *Copy form link* and *Refresh* |
+
+If another counselor claims a lead first, the API returns `409`, and the dashboard removes the lead and says so. An expired token signs the user out.
+
 ## API
 
-Authenticated routes need `Authorization: Bearer <token>`. You get the token from register or login.
+Authenticated routes need `Authorization: Bearer <token>`.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/auth/register` | – | Register an employee `{ name, email, password }` → `{ token, employee }` |
-| POST | `/api/auth/login` | – | Log in `{ email, password }` → `{ token, employee }` |
-| POST | `/api/enquiries` | – | **Public enquiry form** `{ name, email, courseInterest, phone?, message? }` |
-| GET | `/api/enquiries/public` | JWT | Unclaimed leads, visible to all counselors |
+| POST | `/api/auth/register` | – | `{ name, email, password }` → `{ token, employee }` |
+| POST | `/api/auth/login` | – | `{ email, password }` → `{ token, employee }` |
+| POST | `/api/enquiries` | – | **Public form**: `{ name, email, courseInterest, phone?, message? }` |
+| GET | `/api/enquiries/public` | JWT | Unclaimed leads (visible to all counselors) |
 | GET | `/api/enquiries/mine` | JWT | Leads claimed by the logged-in counselor |
-| PATCH | `/api/enquiries/:id/claim` | JWT | Claim a lead. Returns `409` if it is already claimed and `404` if it does not exist |
+| PATCH | `/api/enquiries/:id/claim` | JWT | Claim a lead. Returns `409` if it's already claimed, `404` if it doesn't exist |
 | GET | `/health` | – | Liveness check |
 
-Errors use the shape `{ "error": "message" }`. Validation errors also include `details: [{ field, message }]`.
+Errors are returned as `{ "error": "..." }`. Validation errors also include `details: [{ field, message }]`.
 
-### Example
+**Design notes**
+- **Claiming is race-safe.** It runs as one conditional `UPDATE … WHERE claimed_by IS NULL`, so if two counselors claim at once, exactly one wins. A test covers this.
+- **Public vs private** is derived from `claimed_by IS NULL`, so there's no separate status column that could drift. A partial index keeps the public-lead query fast.
+- Emails are normalized to lowercase. Passwords are hashed with bcrypt and never returned.
 
-```bash
-TOKEN=$(curl -s -X POST localhost:4000/api/auth/register -H 'content-type: application/json' \
-  -d '{"name":"Asha","email":"asha@co.com","password":"password123"}' | jq -r .token)
+## Deployment (free): Vercel + Neon
 
-curl -X POST localhost:4000/api/enquiries -H 'content-type: application/json' \
-  -d '{"name":"Riya","email":"riya@mail.com","courseInterest":"MBA"}'
+Both apps deploy as two Vercel projects from this one repo. Postgres runs on [Neon](https://neon.tech)'s free tier.
 
-curl localhost:4000/api/enquiries/public -H "authorization: Bearer $TOKEN"
-curl -X PATCH localhost:4000/api/enquiries/1/claim -H "authorization: Bearer $TOKEN"
-curl localhost:4000/api/enquiries/mine -H "authorization: Bearer $TOKEN"
-```
+1. **Database.** Create a Neon project and copy the **pooled** connection string (`postgres://…-pooler…/neondb?sslmode=require`).
+2. **API project.** In Vercel: *Add New → Project*, import this repo, and set **Root Directory = `apps/api`**. Add these environment variables:
+   - `DATABASE_URL`: the Neon pooled URL
+   - `JWT_SECRET`: a long random string (`openssl rand -hex 32`)
+   - `CORS_ORIGIN`: the web app's URL (fill this in after step 3, then redeploy)
 
-## Design notes
+   `apps/api/api/index.js` is the serverless entry. It creates the tables on the first request.
+3. **Web project.** Import the same repo again, set **Root Directory = `apps/web`** (Vite preset), and add `VITE_API_URL` = the API URL from step 2.
+4. Open `<web-url>/enquire`, submit an enquiry, then register at `<web-url>/login` and claim it.
 
-- **Claiming is race-safe.** A claim is a single conditional `UPDATE … WHERE id = $1 AND claimed_by IS NULL`. If two counselors claim the same lead at the same moment, exactly one succeeds and the other gets `409`. A test covers this.
-- **Public vs private** comes from `claimed_by IS NULL`, so there is no separate status column that could drift out of sync. A partial index keeps the public-lead query fast.
-- Emails are normalized to lowercase, so `A@x.com` and `a@x.com` count as the same account.
-- Passwords are hashed with bcrypt. Responses never include the hash.
-
-## Project layout
-
-```
-src/
-  app.js               Express app (middleware + routes)
-  server.js            Runs migrations, then starts listening
-  config.js            Env loading/validation
-  db/                  pg pool, schema.sql, migrate script
-  middleware/          JWT auth, validation, error handling
-  routes/              auth.js, enquiries.js
-test/api.test.js       Integration tests (node:test + supertest)
-```
+`vercel.json` in each app handles the routing: the API rewrites every path to the function, and the web app falls back to `index.html` for client-side routes.

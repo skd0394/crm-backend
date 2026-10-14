@@ -2,6 +2,11 @@
 
 A CRM for education counselors. Prospective students fill in a **public enquiry form**, and every counselor sees the unclaimed enquiries. A counselor can **claim** an enquiry, which makes it private to them.
 
+**Live demo**
+- Web app: https://skd-counselor-crm.vercel.app (public form at [`/enquire`](https://skd-counselor-crm.vercel.app/enquire))
+- API: https://skd-crm-api.vercel.app (try [`/health`](https://skd-crm-api.vercel.app/health))
+- Demo counselor login: `asha@crm.test` / `password123` (or register a new account)
+
 This is an npm-workspaces monorepo:
 
 | App | Path | Stack |
